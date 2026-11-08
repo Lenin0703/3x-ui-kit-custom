@@ -15,6 +15,6 @@ jobs:
       - name: Run offline unit tests
         run: python3 -m unittest discover -s tests -v
       - name: Check Bash syntax
-        run: bash -n install.sh
+        run: bash -n install.sh bootstrap.sh
       - name: Show pinned version policy
         run: bash install.sh --versions
