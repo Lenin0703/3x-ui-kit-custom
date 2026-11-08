@@ -64,7 +64,14 @@ def read_os_release(filename: str = '/etc/os-release') -> dict[str, str]:
 
 
 def existing_installation(paths=EXISTING_PATHS) -> list[str]:
-    found = [str(p) for p in map(Path, paths) if p.exists() or p.is_symlink()]
+    found: list[str] = []
+    for p in map(Path, paths):
+        try:
+            if p.exists() or p.is_symlink():
+                found.append(str(p))
+        except OSError:
+            # Fail closed: an unreadable location must not look like an empty VPS.
+            found.append(f'{p} (проверка недоступна: недостаточно прав)')
     # systemctl is read-only here. A service may exist outside the usual path.
     if shutil.which('systemctl'):
         result = subprocess.run(['systemctl', 'is-enabled', 'x-ui'], capture_output=True, text=True, check=False)
@@ -226,9 +233,17 @@ def diagnostic(no_network: bool = False) -> None:
         print('ЗАЩИТА: режим установки будет заблокирован; старые настройки не меняются.')
     for f in ('/etc/x-ui/x-ui.db', '/root/cert/ip/fullchain.pem', '/etc/letsencrypt/live'):
         p = Path(f)
-        if p.exists():
+        try:
+            present = p.exists()
+            is_cert = present and p.is_file() and p.suffix == '.pem'
+        except OSError:
+            # Python 3.12 on Ubuntu 24.04 raises PermissionError for paths
+            # below /root when diagnostics are run by an ordinary user.
+            print('Недоступно для проверки (нет прав):', f)
+            continue
+        if present:
             print('Найден:', f)
-            if p.is_file() and p.suffix == '.pem' and shutil.which('openssl'):
+            if is_cert and shutil.which('openssl'):
                 try:
                     details = subprocess.run(
                         ['openssl', 'x509', '-in', str(p), '-noout', '-enddate'],

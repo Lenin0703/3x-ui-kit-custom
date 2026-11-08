@@ -68,6 +68,22 @@ class LauncherTests(unittest.TestCase):
             self.assertEqual(len(item['blob']), 40)
             int(item['blob'], 16)
 
+    def test_doctor_handles_permission_denied(self):
+        out = StringIO()
+        with patch('kit_custom.cli.existing_installation', return_value=[]), \
+             patch('kit_custom.cli.Path.exists', side_effect=PermissionError(13, 'Permission denied')), \
+             patch('kit_custom.cli.shutil.which', return_value=None), \
+             patch('sys.stdout', out):
+            cli.diagnostic(no_network=True)
+        self.assertIn('Недоступно для проверки (нет прав):', out.getvalue())
+
+    def test_inaccessible_existing_path_fails_closed(self):
+        with patch('kit_custom.cli.Path.exists', side_effect=PermissionError(13, 'Permission denied')), \
+             patch('kit_custom.cli.shutil.which', return_value=None):
+            found = cli.existing_installation(('/root/3x-ui.txt',))
+        self.assertEqual(len(found), 1)
+        self.assertIn('проверка недоступна', found[0])
+
     def test_doctor_offline_does_not_download(self):
         with patch('kit_custom.cli.check_https', side_effect=AssertionError('unexpected network')), \
              patch('kit_custom.cli.existing_installation', return_value=[]), \
