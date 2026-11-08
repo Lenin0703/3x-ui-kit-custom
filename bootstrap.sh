@@ -35,7 +35,7 @@ fetch_file() {
 
 fetch_file 'install.sh' '870247bb8621feb44b07245f49dbf8dbb60b82b6d3ad3b6eb71a468a735d4d9d'
 fetch_file 'kit_custom/__init__.py' '22ab08a8997e0e6ce769e63a733a273b04eae852dedad41d8352de8e63c8b1fc'
-fetch_file 'kit_custom/cli.py' 'd4407cb0889cfb5635b6bad36441caeabaf41f43d345c5a789fad0e0566e6b66'
+fetch_file 'kit_custom/cli.py' 'c63c0f2ae86328dea92e054a3d6ab6bbcba206945a92a45dde0741a5648b3eb9'
 fetch_file 'kit_custom/manifest.py' '3c823575f09b6c6de6fda4de023f1c7f1947b24b9e4c6cd4bcdaf6d7cdf7f07c'
 fetch_file 'kit_custom/patcher.py' '057a86bd8c3f6acc70ab795f3158125969a28cdc43c435cf678a8e5660f89786'
 

@@ -20,7 +20,10 @@ from urllib import error, request
 from . import manifest
 from .patcher import patch_kit, patch_official, PatchError
 
-USER_AGENT = '3x-ui-kit-custom/0.1 (first-stage-install)' 
+USER_AGENT = '3x-ui-kit-custom/0.1 (first-stage-install)'
+# Public HTTPS proxies for GitHub Releases. Bytes are NEVER trusted without the
+# manifest's SHA256. Disable these with KIT_CUSTOM_DISABLE_MIRRORS=1.
+RELEASE_MIRRORS = ('https://ghfast.top/', 'https://gh-proxy.com/')
 SOURCE_ROOT = Path(__file__).resolve().parent.parent
 EXISTING_PATHS = (
     '/etc/x-ui', '/usr/local/x-ui', '/usr/bin/x-ui', '/root/3x-ui.txt',
@@ -90,8 +93,8 @@ def verified_bytes(data: bytes, sha1: str | None = None, sha256: str | None = No
         raise InstallError('SHA256 исходного файла не совпала; файл отвергнут.')
 
 
-def fetch_small(url: str, timeout: int = 18) -> bytes:
-    req = request.Request(url, headers={'User-Agent': USER_AGENT, 'Accept': 'application/octet-stream'})
+def fetch_small(url: str, timeout: int = 18, accept: str = '*/*') -> bytes:
+    req = request.Request(url, headers={'User-Agent': USER_AGENT, 'Accept': accept})
     with request.urlopen(req, timeout=timeout) as res:
         if res.status != 200:
             raise InstallError(f'HTTP {res.status}: {url}')
@@ -126,7 +129,7 @@ def fetch_verified_source(url: str, blob: str, destination: Path, offline: Path 
             # Second *official* source: GitHub Git Blobs API.
             api = f'https://api.github.com/repos/{github_repo}/git/blobs/{blob}'
             try:
-                metadata = json.loads(fetch_small(api))
+                metadata = json.loads(fetch_small(api, accept='application/vnd.github+json'))
                 candidate = base64.b64decode(metadata['content'], validate=False)
                 verified_bytes(candidate, blob, sha256)
                 data = candidate
@@ -190,7 +193,7 @@ def fetch_archive(dest: Path, arch: str, local: Path | None = None) -> None:
                 time.sleep(attempt + 1)
     try:
         meta_url = f'https://api.github.com/repos/MHSanaei/3x-ui/releases/tags/{manifest.PANEL_VERSION}'
-        metadata = json.loads(fetch_small(meta_url))
+        metadata = json.loads(fetch_small(meta_url, accept='application/vnd.github+json'))
         assets = [asset for asset in metadata.get('assets', []) if asset.get('name') == name]
         if len(assets) != 1:
             raise InstallError('В официальном релизе GitHub архив не найден.')
@@ -204,7 +207,26 @@ def fetch_archive(dest: Path, arch: str, local: Path | None = None) -> None:
     except (OSError, error.URLError, KeyError, ValueError, InstallError) as exc:
         errors.append('GitHub API: ' + str(exc))
         dest.unlink(missing_ok=True)
-    raise InstallError('Не удалось скачать официальный архив релиза.\n' + '\n'.join(errors[-4:]) +
+
+    # On some VPS networks the release CDN returns 504 and the API asset route
+    # returns 415. Try documented public download proxies, but NEVER execute
+    # their content without verification against the official pinned SHA256.
+    if os.environ.get('KIT_CUSTOM_DISABLE_MIRRORS') != '1':
+        print('Официальные каналы загрузки недоступны. Пробую HTTPS-прокси GitHub Releases;',
+              'проверка SHA256 обязательна.', flush=True)
+        for prefix in RELEASE_MIRRORS:
+            url = prefix + release_url
+            try:
+                fetch_archive_url(url, dest, sha)
+                dest.chmod(0o600)
+                print(f'Архив получен через {prefix} и проверен по SHA256.', flush=True)
+                return
+            except (OSError, error.URLError, InstallError) as exc:
+                errors.append('HTTPS-прокси ' + prefix + ': ' + str(exc))
+                dest.unlink(missing_ok=True)
+
+    raise InstallError('Не удалось скачать архив панели из доступных источников.\n' +
+                       '\n'.join(errors[-6:]) +
                        '\nМожно скачать x-ui-linux-' + arch + '.tar.gz на другом компьютере из ' +
                        'https://github.com/MHSanaei/3x-ui/releases/tag/v3.9.0 ' +
                        'и выполнить --install --archive /путь/к/архиву')
@@ -306,13 +328,8 @@ def install(args: argparse.Namespace) -> int:
     if any(a == '--restore' or a.startswith('--restore=') for a in original_args):
         raise InstallError('Восстановление из резервной копии в первом этапе отключено.')
     arch = validate_environment()  # before any directory/file creation or download
-    if not args.yes:
-        try:
-            answer = input('Чистая Ubuntu подтверждена. Для установки введите УСТАНОВИТЬ: ').strip()
-        except EOFError:
-            answer = ''
-        if answer != 'УСТАНОВИТЬ':
-            raise InstallError('Подтверждение не получено. Ничего не изменено.')
+    # Explicit --install (or the default one-line bootstrap) is the confirmation.
+    # No extra input prompt: the original KIT still asks for protocol/settings choices.
     with tempfile.TemporaryDirectory(prefix='kit-custom-', dir='/tmp') as temp:
         work = Path(temp)
         work.chmod(0o700)
@@ -375,7 +392,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--archive', type=Path, help='локальный архив релиза, если GitHub Releases заблокирован')
     parser.add_argument('--upstream-dir', type=Path, help='локальная папка с файлами upstream: 3x-ui.sh, kit.sh, kit-sub.py, install.sh')
     parser.add_argument('--offline', action='store_true', help='для диагностики пропустить сетевые проверки')
-    parser.add_argument('--yes', action='store_true', help='подтвердить запуск установки, только с --install')
+    parser.add_argument('--yes', action='store_true', help='для совместимости со старыми командами; дополнительное подтверждение не требуется')
     parser.add_argument('forward', nargs=argparse.REMAINDER, help='после -- аргументы оригинального KIT')
     args = parser.parse_args(argv)
     try:
